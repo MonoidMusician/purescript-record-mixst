@@ -5,8 +5,9 @@ import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.ST (ST)
 import Control.Plus (empty)
 import Data.Maybe (Maybe(..))
+import Data.Newtype (class Newtype)
 import Data.Record as R
-import Data.Tuple (Tuple(..), curry, uncurry)
+import Data.Tuple (Tuple(..), curry)
 import Prelude hiding (bind)
 import Type.Prelude (class IsSymbol, class RowLacks, SProxy, reflectSymbol)
 import Unsafe.Coerce (unsafeCoerce)
@@ -20,13 +21,14 @@ unsafeCoerceSTRecord ::
   STRecord realm r' m'
 unsafeCoerceSTRecord = unsafeCoerce
 
-type STEff
+newtype MIxSTEff
   (realm :: Type)
   (fromVars :: # Type)
   (toVars :: # Type)
   (eff :: # Effect)
   (ret :: Type)
-  = Record fromVars -> Eff (st :: ST realm | eff) (Tuple ret (Record toVars))
+  = MIxSTEff (Record fromVars -> Eff (st :: ST realm | eff) (Tuple ret (Record toVars)))
+derive instance newtypeMIxSTEff :: Newtype (MIxSTEff r f t e d) _
 type STREff
   (realm :: Type)
   (fromVars :: # Type)
@@ -34,26 +36,48 @@ type STREff
   (eff :: # Effect)
   (r :: # Type)
   (m :: # Type)
-  = STEff realm fromVars toVars eff (STRecord realm r m)
+  = MIxSTEff realm fromVars toVars eff (STRecord realm r m)
 
 rbind ::
   forall realm x y z eff a b.
-        STEff realm x y   eff a ->
-  (a -> STEff realm   y z eff b) ->
-        STEff realm x   z eff b
-rbind start next vars = start vars >>= uncurry next
+        MIxSTEff realm x y   eff a ->
+  (a -> MIxSTEff realm   y z eff b) ->
+        MIxSTEff realm x   z eff b
+rbind (MIxSTEff start) next =
+  MIxSTEff \vars -> start vars >>= \(Tuple a s) ->
+    case next a of
+      MIxSTEff n -> n s
 infixl 1 rbind as >>~
 
 rpure ::
   forall realm vars eff a.
-  a -> STEff realm vars vars eff a
-rpure = curry Monad.pure
+  a -> MIxSTEff realm vars vars eff a
+rpure = MIxSTEff <<< curry Monad.pure
 
 rliftEff ::
   forall realm vars eff ret.
   Eff (st :: ST realm | eff) ret ->
-  STEff realm vars vars eff ret
-rliftEff e vars = e <#> flip Tuple vars
+  MIxSTEff realm vars vars eff ret
+rliftEff e = MIxSTEff \vars -> e <#> flip Tuple vars
+
+pureMIxSTEff ::
+  forall realm vars vars' eff ret.
+  (Record vars -> Tuple ret (Record vars')) ->
+  MIxSTEff realm vars vars' eff ret
+pureMIxSTEff f = MIxSTEff (pure <<< f)
+
+withMIxSTEff ::
+  forall realm vars eff ret.
+  (Record vars -> ret) ->
+  MIxSTEff realm vars vars eff ret
+withMIxSTEff f = pureMIxSTEff \vars -> Tuple (f vars) vars
+
+mapMIxSTEff ::
+  forall realm vars vars' eff ret.
+  (Record vars -> Record vars') ->
+  MIxSTEff realm vars vars eff ret ->
+  MIxSTEff realm vars vars' eff ret
+mapMIxSTEff f start = start >>~ \v -> pureMIxSTEff (Tuple v <<< f)
 
 getV ::
   forall name realm meh vars eff r m.
@@ -61,7 +85,7 @@ getV ::
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name ->
   STREff realm vars vars eff r m
-getV name vars = pure (Tuple (R.get name vars) vars)
+getV name = MIxSTEff \vars -> pure (Tuple (R.get name vars) vars)
 
 setV ::
   forall name r r' realm vars meh vars' eff r m.
@@ -70,8 +94,8 @@ setV ::
     RowCons name (STRecord realm r' m) meh vars' =>
   SProxy name ->
   STRecord realm r' m ->
-  STEff realm vars vars' eff Unit
-setV name entry vars = pure (Tuple unit (R.set name entry vars))
+  MIxSTEff realm vars vars' eff Unit
+setV name entry = MIxSTEff \vars -> pure (Tuple unit (R.set name entry vars))
 
 insertV ::
   forall name r realm vars vars' eff r m.
@@ -80,8 +104,8 @@ insertV ::
     RowCons name (STRecord realm r m) vars vars' =>
   SProxy name ->
   STRecord realm r m ->
-  STEff realm vars vars' eff Unit
-insertV name entry vars = pure (Tuple unit (R.insert name entry vars))
+  MIxSTEff realm vars vars' eff Unit
+insertV name entry = MIxSTEff \vars -> pure (Tuple unit (R.insert name entry vars))
 
 modifyV ::
   forall name r r' realm vars meh vars' eff r m.
@@ -90,7 +114,7 @@ modifyV ::
     RowCons name (STRecord realm r' m) meh vars' =>
   SProxy name ->
   (STRecord realm r m -> Eff (st :: ST realm | eff) (STRecord realm r' m)) ->
-  STEff realm vars vars' eff Unit
+  MIxSTEff realm vars vars' eff Unit
 modifyV name f = getV name >>~ f >>> rliftEff >>~ setV name
 
 thawAs ::
@@ -99,7 +123,7 @@ thawAs ::
     RowLacks name vars =>
     RowCons name (STRecord realm r ()) vars vars' =>
   SProxy name -> Record r ->
-  STEff realm vars vars' eff Unit
+  MIxSTEff realm vars vars' eff Unit
 thawAs name r = rliftEff (rawCopy r) >>~ insertV name
 
 freezeFrom ::
@@ -107,7 +131,7 @@ freezeFrom ::
     IsSymbol name =>
     RowCons name (STRecord realm r ()) meh vars =>
   SProxy name ->
-  STEff realm vars vars eff (Record r)
+  MIxSTEff realm vars vars eff (Record r)
 freezeFrom name = getV name >>~ rliftEff <<< rawCopy
 
 foreign import rawCopy ::
@@ -142,7 +166,7 @@ get ::
     RowCons sym t r' r =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
-  STEff realm vars vars eff t
+  MIxSTEff realm vars vars eff t
 get name k = getV name >>~ unmanagedGet k >>> rliftEff
 
 unmanagedTest ::
@@ -161,7 +185,7 @@ test ::
     RowCons sym t m' m =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
-  STEff realm vars vars eff Boolean
+  MIxSTEff realm vars vars eff Boolean
 test name k = getV name >>~ unmanagedTest k >>> rliftEff
 
 unmanagedGetM ::
@@ -185,7 +209,7 @@ getM ::
     RowCons sym t m' m =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
-  STEff realm vars vars eff (Maybe t)
+  MIxSTEff realm vars vars eff (Maybe t)
 getM name k = getV name >>~ unmanagedGetM k >>> rliftEff
 
 unmanagedInsert ::
@@ -208,7 +232,7 @@ insert ::
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
   SProxy name -> SProxy sym ->
-  t -> STEff realm vars vars' eff Unit
+  t -> MIxSTEff realm vars vars' eff Unit
 insert name k v = modifyV name $ unmanagedInsert k v
 
 unmanagedDelete ::
@@ -232,5 +256,5 @@ delete ::
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
   SProxy name -> SProxy sym ->
-  STEff realm vars vars' eff Unit
+  MIxSTEff realm vars vars' eff Unit
 delete name k = modifyV name $ unmanagedDelete k
