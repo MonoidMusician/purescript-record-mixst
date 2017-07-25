@@ -61,6 +61,14 @@ rget ::
   SProxy name -> STREff realm vars vars eff r m
 rget name vars = pure (Tuple (R.get name vars) vars)
 
+rput ::
+  forall name r r' realm vars meh vars' eff r m.
+    IsSymbol name =>
+    RowCons name (STRecord realm r m) meh vars =>
+    RowCons name (STRecord realm r' m) meh vars' =>
+  SProxy name -> STRecord realm r' m -> STEff realm vars vars' eff Unit
+rput name entry vars = pure (Tuple unit (R.set name entry vars))
+
 thawAs ::
   forall name vars vars' realm r eff.
     IsSymbol name =>
@@ -156,6 +164,7 @@ insert ::
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
   SProxy name -> SProxy sym -> t -> STEff realm vars vars' eff Unit
-insert name k v = rget name >>~ \(entry :: STRecord realm r m) (vars :: Record vars) ->
-  unmanagedInsert k v entry <#> \(entry' :: STRecord realm r' m) ->
-    Tuple unit (R.set name entry' vars :: Record vars')
+insert name k v = let bind = rbind in do
+  entry <- rget name
+  entry' <- rliftEff $ unmanagedInsert k v entry
+  rput name entry'
