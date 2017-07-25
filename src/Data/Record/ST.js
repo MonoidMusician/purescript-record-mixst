@@ -33,7 +33,6 @@ exports.rawSet = function(k) {
     return function(r) {
       return function() {
         r[k] = v;
-        return {};
       };
     };
   };
@@ -43,7 +42,6 @@ exports.rawDelete = function(k) {
   return function(r) {
     return function() {
       delete r[k];
-      return {};
     };
   };
 };
