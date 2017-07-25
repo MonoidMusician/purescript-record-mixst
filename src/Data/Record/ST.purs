@@ -50,7 +50,7 @@ rpure ::
 rpure = curry Monad.pure
 
 rliftEff ::
-  forall name realm vars eff ret.
+  forall realm vars eff ret.
   Eff (st :: ST realm | eff) ret -> STEff realm vars vars eff ret
 rliftEff e vars = e <#> flip Tuple vars
 
@@ -62,7 +62,7 @@ rget ::
 rget name vars = pure (Tuple (R.get name vars) vars)
 
 thawAs ::
-  forall a name vars vars' realm r eff.
+  forall name vars vars' realm r eff.
     IsSymbol name =>
     RowLacks name vars =>
     RowCons name (STRecord realm r ()) vars vars' =>
@@ -75,7 +75,7 @@ foreign import rawCopy ::
   forall a b realm eff.
   a -> Eff (st :: ST realm | eff) b
 foreign import rawExists ::
-  forall r m b realm eff.
+  forall r m realm eff.
   String -> STRecord realm r m -> Eff (st :: ST realm | eff) Boolean
 foreign import rawGet ::
   forall r m b realm eff.
@@ -138,7 +138,7 @@ getM ::
 getM name k = rget name >>~ unmanagedGetM k
 
 unmanagedInsert ::
-  forall sym t r r' m realm vars vars' eff.
+  forall sym t r r' m realm eff.
     IsSymbol sym =>
     RowLacks sym r =>
     RowCons sym t r r' =>
