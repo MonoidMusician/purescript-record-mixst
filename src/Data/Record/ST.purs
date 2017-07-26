@@ -9,6 +9,7 @@ import Control.Monad.ST (ST)
 import Control.Monad.State as St
 import Control.Monad.State.Class (class MonadState)
 import Control.Plus (empty)
+import Data.Maybe (Maybe(..))
 import Data.Newtype (class Newtype)
 import Data.Record as R
 import Data.Tuple (Tuple(..), curry)
@@ -166,12 +167,12 @@ getV name =
   igets $ R.get name
 
 setV ::
-  forall name realm eff vars meh vars' r r' m.
+  forall name realm eff vars meh vars' r r' m m'.
     IsSymbol name =>
     RowCons name (STRecord realm r m) meh vars =>
-    RowCons name (STRecord realm r' m) meh vars' =>
+    RowCons name (STRecord realm r' m') meh vars' =>
   SProxy name ->
-  STRecord realm r' m ->
+  STRecord realm r' m' ->
   VIxSTEff realm eff vars vars' Unit
 setV name entry =
   imodify $ R.set name entry
@@ -188,12 +189,12 @@ insertV name entry =
   imodify $ R.insert name entry
 
 modifyV ::
-  forall name realm eff vars meh vars' r r' m.
+  forall name realm eff vars meh vars' r r' m m'.
     IsSymbol name =>
     RowCons name (STRecord realm r m) meh vars =>
-    RowCons name (STRecord realm r' m) meh vars' =>
+    RowCons name (STRecord realm r' m') meh vars' =>
   SProxy name ->
-  (STRecord realm r m -> Eff (st :: ST realm | eff) (STRecord realm r' m)) ->
+  MutSTRecord realm eff r r' m m' ->
   VIxSTEff realm eff vars vars' Unit
 modifyV name f =
   getV name :>>=/ f :>>= setV name
@@ -259,7 +260,7 @@ unmanagedTest ::
     RowCons sym t m' m =>
   SProxy sym ->
   OnSTRecord realm eff r m Boolean
-unmanagedTest k = rawExists (reflectSymbol k)
+unmanagedTest = rawExists <<< reflectSymbol
 
 test ::
   forall name sym t r m m' realm eff meh vars.
@@ -280,10 +281,10 @@ unmanagedGetM ::
     RowCons sym t m' m =>
   SProxy sym ->
   OnSTRecord realm eff r m (f t)
-unmanagedGetM s r =
-  let k = reflectSymbol s in
-  ifM (not <$> rawExists k r) (pure empty)
-    $ pure <$> rawGet k r
+unmanagedGetM k r =
+  let key = reflectSymbol k in
+  ifM (not <$> rawExists key r) (pure empty)
+    $ pure <$> rawGet    key r
 
 getM ::
   forall name sym t r m m' realm eff meh vars f.
@@ -305,8 +306,8 @@ unmanagedInsert ::
     RowCons sym t r r' =>
   SProxy sym -> t ->
   MutSTRecord realm eff r r' m m
-unmanagedInsert s v r = do
-  rawSet (reflectSymbol s) v r
+unmanagedInsert k v r = do
+  rawSet (reflectSymbol k) v r
   pure (unsafeCoerceSTRecord r)
 
 insert ::
@@ -330,8 +331,8 @@ unmanagedDelete ::
     RowLacks sym r' =>
   SProxy sym ->
   MutSTRecord realm eff r r' m m
-unmanagedDelete s r = do
-  rawDelete (reflectSymbol s) r
+unmanagedDelete k r = do
+  rawDelete (reflectSymbol k) r
   pure (unsafeCoerceSTRecord r)
 
 delete ::
@@ -347,3 +348,91 @@ delete ::
   VIxSTEff realm eff vars vars' Unit
 delete name k =
   modifyV name $ unmanagedDelete k
+
+unmanagedDeleteM ::
+  forall sym t r m m' realm eff.
+    IsSymbol sym =>
+    RowCons sym t m' m =>
+    RowLacks sym m' =>
+  SProxy sym ->
+  MutSTRecord realm eff r r m m'
+unmanagedDeleteM k r = do
+  -- no need to check if it exists,
+  -- deleting should be idempotent
+  rawDelete (reflectSymbol k) r
+  pure (unsafeCoerceSTRecord r)
+
+deleteM ::
+  forall name sym t r m m' realm eff vars meh vars'.
+    IsSymbol name =>
+    IsSymbol sym =>
+    RowCons sym t m' m =>
+    RowLacks sym r =>
+    RowLacks sym m' =>
+    RowCons name (STRecord realm r m) meh vars =>
+    RowCons name (STRecord realm r m') meh vars' =>
+  SProxy name -> SProxy sym ->
+  VIxSTEff realm eff vars vars' Unit
+deleteM name k =
+  modifyV name $ unmanagedDeleteM k
+
+unmanagedAlter ::
+  forall sym t t' r m n m' realm eff.
+    IsSymbol sym =>
+    RowCons sym t n m =>
+    RowCons sym t' n m' =>
+  SProxy sym ->
+  (Maybe t -> Maybe t') ->
+  MutSTRecord realm eff r r m m'
+unmanagedAlter k f r = let bind = Monad.bind in do
+  let key = reflectSymbol k
+  mv <- unmanagedGetM k r <#> f
+  case mv of
+    Nothing -> rawDelete key   r
+    Just v  -> rawSet    key v r
+  pure (unsafeCoerceSTRecord r)
+
+alter ::
+  forall name sym t t' r m n m' vars meh vars' realm eff.
+    IsSymbol name =>
+    IsSymbol sym =>
+    RowCons sym t n m =>
+    RowCons sym t' n m' =>
+    RowCons name (STRecord realm r m) meh vars =>
+    RowCons name (STRecord realm r m') meh vars' =>
+  SProxy name -> SProxy sym ->
+  (Maybe t -> Maybe t') ->
+  VIxSTEff realm eff vars vars' Unit
+alter name k f =
+  modifyV name $ unmanagedAlter k f
+
+unmanagedEnsure ::
+  forall sym t t' r r' m m' realm eff.
+    IsSymbol sym =>
+    RowCons sym t m' m =>
+    RowLacks sym m' =>
+    RowLacks sym r =>
+    RowCons sym t' r r' =>
+  SProxy sym ->
+  (Maybe t -> t') ->
+  MutSTRecord realm eff r r' m m'
+unmanagedEnsure k f r = let bind = Monad.bind in do
+  v <- unmanagedGetM k r <#> f
+  rawSet (reflectSymbol k) v r
+  pure (unsafeCoerceSTRecord r)
+
+ensure ::
+  forall name sym t t' r r' m m' vars meh vars' realm eff.
+    IsSymbol name =>
+    IsSymbol sym =>
+    RowCons sym t m' m =>
+    RowLacks sym m' =>
+    RowLacks sym r =>
+    RowCons sym t' r r' =>
+    RowCons name (STRecord realm r m) meh vars =>
+    RowCons name (STRecord realm r' m') meh vars' =>
+  SProxy name -> SProxy sym ->
+  (Maybe t -> t') ->
+  VIxSTEff realm eff vars vars' Unit
+ensure name k f =
+  modifyV name $ unmanagedEnsure k f
