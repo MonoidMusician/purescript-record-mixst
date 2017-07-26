@@ -54,19 +54,6 @@ instance freezeCons ::
         -- fzM :: MutSTRecord _ _ r_ r' m_ ()
         fzM = freezeMaybes' (RLProxy :: RLProxy (Cons sym (Maybe t) rl)) (RLProxy :: RLProxy ml) (RLProxy :: RLProxy (Cons sym (Maybe t) rl'))
 
-type RL = Cons "a" String Nil
-type ML = Cons "b" Int Nil
-type RL' = Cons "b" (Maybe Int) (Cons "a" String Nil)
--- type RL' = Cons "a" String (Cons "b" (Maybe Int) Nil)
-
-check :: { rl :: RLProxy RL, ml :: RLProxy ML, rl' :: RLProxy RL' }
-check =
-  { rl: RLProxy, ml: RLProxy, rl': RLProxy } ::
-    forall rl ml rl'.
-    FreezeMaybes RL ML RL'
-      ( a :: String ) ( b :: Int ) ( a :: String, b :: Maybe Int )
-    => Record ( rl :: RLProxy RL, ml :: RLProxy ML, rl' :: RLProxy RL' )
-
 freezeMaybesFrom :: forall name meh vars realm eff r r' m rl ml rl'.
     IsSymbol name =>
     RowToList r rl =>
