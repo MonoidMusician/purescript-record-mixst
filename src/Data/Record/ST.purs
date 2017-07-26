@@ -27,9 +27,14 @@ newtype MIxSTEff
   (toVars :: # Type)
   (eff :: # Effect)
   (ret :: Type)
-  = MIxSTEff (Record fromVars -> Eff (st :: ST realm | eff) (Tuple ret (Record toVars)))
+  = MIxSTEff
+    ( Record fromVars ->
+      STEff realm eff
+      ( Tuple ret (Record toVars) )
+    )
 derive instance newtypeMIxSTEff :: Newtype (MIxSTEff r f t e d) _
-type STREff
+
+type MIxSTREff
   (realm :: Type)
   (fromVars :: # Type)
   (toVars :: # Type)
@@ -38,6 +43,21 @@ type STREff
   (m :: # Type)
   = MIxSTEff realm fromVars toVars eff (STRecord realm r m)
 
+type STEff realm eff
+  = Eff (st :: ST realm | eff)
+
+type OnSTRecord realm eff r m a
+  = STRecord realm r m -> STEff realm eff a
+
+type MutSTRecord realm eff r r' m m'
+  = OnSTRecord realm eff r m (STRecord realm r' m')
+
+runMIxSTEff ::
+  forall realm fromVars toVars eff ret.
+  MIxSTEff realm fromVars toVars eff ret ->
+  Record fromVars -> Eff (st :: ST realm | eff) (Tuple ret (Record toVars))
+runMIxSTEff (MIxSTEff f) = f
+
 rbind ::
   forall realm x y z eff a b.
         MIxSTEff realm x y   eff a ->
@@ -45,8 +65,7 @@ rbind ::
         MIxSTEff realm x   z eff b
 rbind (MIxSTEff start) next =
   MIxSTEff \vars -> start vars >>= \(Tuple a s) ->
-    case next a of
-      MIxSTEff n -> n s
+    runMIxSTEff (next a) s
 infixl 1 rbind as >>~
 
 rpure ::
@@ -84,7 +103,7 @@ getV ::
     IsSymbol name =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name ->
-  STREff realm vars vars eff r m
+  MIxSTREff realm vars vars eff r m
 getV name = MIxSTEff \vars -> pure (Tuple (R.get name vars) vars)
 
 setV ::
@@ -139,24 +158,23 @@ foreign import rawCopy ::
   a -> Eff (st :: ST realm | eff) b
 foreign import rawExists ::
   forall r m realm eff.
-  String -> STRecord realm r m -> Eff (st :: ST realm | eff) Boolean
+  String -> OnSTRecord realm eff r m Boolean
 foreign import rawGet ::
   forall r m b realm eff.
-  String -> STRecord realm r m -> Eff (st :: ST realm | eff) b
+  String -> OnSTRecord realm eff r m b
 foreign import rawSet ::
   forall r m v realm eff.
-  String -> v -> STRecord realm r m -> Eff (st :: ST realm | eff) Unit
+  String -> v -> OnSTRecord realm eff r m Unit
 foreign import rawDelete ::
   forall r m b realm eff.
-  String -> STRecord realm r m -> Eff (st :: ST realm | eff) Unit
+  String -> OnSTRecord realm eff r m Unit
 
 unmanagedGet ::
   forall sym t r r' m realm vars eff.
     IsSymbol sym =>
     RowCons sym t r' r =>
   SProxy sym ->
-  STRecord realm r m ->
-  Eff (st :: ST realm | eff) t
+  OnSTRecord realm eff r m t
 unmanagedGet = rawGet <<< reflectSymbol
 
 get ::
@@ -174,8 +192,7 @@ unmanagedTest ::
     IsSymbol sym =>
     RowCons sym t m' m =>
   SProxy sym ->
-  STRecord realm r m ->
-  Eff (st :: ST realm | eff) Boolean
+  OnSTRecord realm eff r m Boolean
 unmanagedTest k = rawExists (reflectSymbol k)
 
 test ::
@@ -193,8 +210,7 @@ unmanagedGetM ::
     IsSymbol sym =>
     RowCons sym t m' m =>
   SProxy sym ->
-  STRecord realm r m ->
-  Eff (st :: ST realm | eff) (Maybe t)
+  OnSTRecord realm eff r m (Maybe t)
 unmanagedGetM s r =
   let k = reflectSymbol s
   in rawExists k r >>=
@@ -218,7 +234,7 @@ unmanagedInsert ::
     RowLacks sym r =>
     RowCons sym t r r' =>
   SProxy sym -> t ->
-  STRecord realm r m -> Eff (st :: ST realm | eff) (STRecord realm r' m)
+  MutSTRecord realm eff r r' m m
 unmanagedInsert s v r = do
   rawSet (reflectSymbol s) v r
   pure (unsafeCoerceSTRecord r)
@@ -241,8 +257,7 @@ unmanagedDelete ::
     RowCons sym t r' r =>
     RowLacks sym r' =>
   SProxy sym ->
-  STRecord realm r m ->
-  Eff (st :: ST realm | eff) (STRecord realm r' m)
+  MutSTRecord realm eff r r' m m
 unmanagedDelete s r = do
   rawDelete (reflectSymbol s) r
   pure (unsafeCoerceSTRecord r)
