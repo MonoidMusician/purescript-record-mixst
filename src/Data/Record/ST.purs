@@ -168,6 +168,31 @@ insert ::
 insert name k v =
   modifyV name $ unmanagedInsert k v
 
+unmanagedInsertM ::
+  forall sym t r m m' realm eff.
+    IsSymbol sym =>
+    RowLacks sym m =>
+    RowCons sym t m m' =>
+  SProxy sym -> Boolean -> t ->
+  MutSTRecord realm eff r r m m'
+unmanagedInsertM k b v r = do
+  when b (rawSet (reflectSymbol k) v r)
+  pure (unsafeCoerceSTRecord r)
+
+insertM ::
+  forall name sym t r m m' realm eff vars meh vars'.
+    IsSymbol name =>
+    IsSymbol sym =>
+    RowLacks sym r =>
+    RowLacks sym m =>
+    RowCons sym t m m' =>
+    RowCons name (STRecord realm r m) meh vars =>
+    RowCons name (STRecord realm r m') meh vars' =>
+  SProxy name -> SProxy sym ->
+  Boolean -> t -> VIxSTEff realm eff vars vars' Unit
+insertM name k b v =
+  modifyV name $ unmanagedInsertM k b v
+
 unmanagedDelete ::
   forall sym t r r' m realm eff.
     IsSymbol sym =>

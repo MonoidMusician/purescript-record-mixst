@@ -3,9 +3,9 @@
 exports.rawCopy = function(r) {
   return function() {
     var copy = {};
-    for (var key in rec) {
-      if ({}.hasOwnProperty.call(rec, key)) {
-        copy[key] = rec[key];
+    for (var key in r) {
+      if ({}.hasOwnProperty.call(r, key)) {
+        copy[key] = r[key];
       }
     }
     return copy;
