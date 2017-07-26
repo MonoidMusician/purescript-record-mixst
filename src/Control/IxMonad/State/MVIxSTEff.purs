@@ -102,6 +102,16 @@ insertV ::
 insertV name entry =
   imodify $ R.insert name entry
 
+deleteV ::
+  forall name realm eff vars meh vars' d.
+    IsSymbol name =>
+    RowLacks name vars' =>
+    RowCons name d vars' vars =>
+  SProxy name ->
+  MVIxSTEff realm eff vars vars' Unit
+deleteV name =
+  imodify $ R.delete name
+
 modifyV ::
   forall name realm eff vars meh vars' d d'.
     IsSymbol name =>

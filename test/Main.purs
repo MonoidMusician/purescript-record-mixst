@@ -93,5 +93,6 @@ main =
     assertlifted "acopy4.a == \"hi\"" (acopy4.a == "hi") :*>
     assertlifted "acopy4.b == 5" (acopy4.b == 5) :*>
     assertlifted "acopy1.a == 1" (acopy1.a == 1) :*>
+    unsafeFreeze a :>>= \mutablea ->
     ipure unit
   )

@@ -1,8 +1,9 @@
 module Data.Record.ST where
 
 import Control.Alternative (class Alternative)
+import Control.IxMonad ((<*:))
 import Control.IxMonad.State.IxSTEff (IxSTEff, STEff)
-import Control.IxMonad.State.MVIxSTEff (getV, insertV, modifyV, (/:>>=), (:>>=/))
+import Control.IxMonad.State.MVIxSTEff (getV, insertV, modifyV, deleteV, (/:>>=), (:>>=/))
 import Control.Monad as Monad
 import Control.Monad.Eff (kind Effect)
 import Control.Plus (empty)
@@ -61,6 +62,20 @@ freezeFrom ::
   VIxSTEff realm eff vars vars (Record r)
 freezeFrom name =
   getV name :>>=/ rawCopy
+
+unsafeFreeze ::
+  forall name vars vars' realm eff r.
+    IsSymbol name =>
+    RowCons name (STRecord realm r ()) vars' vars =>
+    RowLacks name vars' =>
+  SProxy name ->
+  VIxSTEff realm eff vars vars' (Record r)
+unsafeFreeze name = coerceG (getV name) <*: deleteV name
+  where
+    coerceG ::
+      VIxSTEff realm eff vars vars (STRecord realm r ()) ->
+      VIxSTEff realm eff vars vars (Record r)
+    coerceG = unsafeCoerce
 
 foreign import rawCopy ::
   forall a b realm eff.
