@@ -1,7 +1,7 @@
 module Data.Record.ST where
 
 import Control.Alternative (class Alternative)
-import Control.IxMonad (class IxMonad, ibind, ipure, (:>>=))
+import Control.IxMonad (class IxMonad, ibind, ipure, (:>>=), (=<<:))
 import Control.Monad as Monad
 import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
@@ -66,10 +66,10 @@ type MutSTRecord realm eff r r' m m'
 
 instance functorIxSTEff :: Functor (IxSTEff realm eff x x) where
   map = liftM1
-instance applicativeIxSTEff :: Applicative (IxSTEff realm eff x x) where
-  pure = ipure
 instance applyIxSTEff :: Apply (IxSTEff realm eff x x) where
   apply = ap
+instance applicativeIxSTEff :: Applicative (IxSTEff realm eff x x) where
+  pure = ipure
 instance bindIxSTEff :: Bind (IxSTEff realm eff x x) where
   bind = ibind
 instance monadIxSTEff :: Monad (IxSTEff realm eff x x)
@@ -91,75 +91,65 @@ class IxMonad m <= IxMonadState m where
 
 instance ixMonadStateIxSTEff :: IxMonadState (IxSTEff realm eff) where
   iget = St.get
-  iput s = IxSTEff $ const $ pure $ Tuple unit s
+  iput = IxSTEff <<< const <<< pure <<< Tuple unit
 
 imodify :: forall m i j. IxMonadState m => (i -> j) -> m i j Unit
-imodify f = iget :>>= f >>> iput
+imodify f = iput <<< f =<<: iget
 
 igets :: forall m i a. IxMonadState m => (i -> a) -> m i i a
-igets f = iget :>>= f >>> ipure
+igets f = ipure <<< f =<<: iget
 
-runIxSTEff ::
-  forall realm from to eff ret.
+runIxSTEff :: forall realm from to eff ret.
   IxSTEff realm eff from to ret ->
   from -> STEff realm eff (Tuple ret to)
 runIxSTEff (IxSTEff f) = f
 
-runVIxSTEff ::
-  forall realm fromVars toVars eff ret.
+runVIxSTEff :: forall realm fromVars toVars eff ret.
   VIxSTEff realm eff fromVars toVars ret ->
   Record fromVars -> STEff realm eff (Tuple ret (Record toVars))
 runVIxSTEff (IxSTEff f) = f
 
-vbind ::
-  forall realm x y z eff a b.
+vbind :: forall  realm eff x y z a b.
         VIxSTEff realm eff x y   a  ->
   (a -> VIxSTEff realm eff   y z b) ->
         VIxSTEff realm eff x   z b
 vbind = ibind
 
-vpure ::
-  forall realm vars eff a.
+vpure :: forall realm eff vars a.
   a -> VIxSTEff realm eff vars vars a
 vpure = ipure
 
-vbindLift ::
-  forall realm x y z eff a b.
+vbindLift :: forall realm eff x y z a b.
   VIxSTEff realm eff x y a ->
   (a -> STEff realm eff b) ->
   VIxSTEff realm eff x y b
 vbindLift start f = start :>>= f >>> vliftEff
 infixl 1 vbindLift as :>>=/
 
-vliftBind ::
-  forall realm x y z eff a b.
+vliftBind :: forall realm x y z eff a b.
   STEff realm eff a ->
   (a -> VIxSTEff realm eff x y b) ->
   VIxSTEff realm eff x y b
 vliftBind start f = vliftEff start :>>= f
 infixl 1 vliftBind as /:>>=
 
-vliftEff ::
-  forall realm vars eff ret.
+vliftEff :: forall realm eff vars ret.
   Eff (st :: ST realm | eff) ret ->
   VIxSTEff realm eff vars vars ret
 vliftEff = liftEff
 
-pureVIxSTEff ::
-  forall realm vars vars' eff ret.
+pureVIxSTEff :: forall realm eff vars vars' ret.
   (Record vars -> Tuple ret (Record vars')) ->
   VIxSTEff realm eff vars vars' ret
 pureVIxSTEff f = IxSTEff (pure <<< f)
 
-withVIxSTEff ::
-  forall realm vars eff ret.
+withVIxSTEff :: forall realm eff vars ret.
   (Record vars -> ret) ->
   VIxSTEff realm eff vars vars ret
 withVIxSTEff f =
   pureVIxSTEff \vars -> Tuple (f vars) vars
 
-mapVIxSTEff ::
-  forall realm vars vars' eff ret.
+mapVIxSTEff :: forall realm eff vars vars' ret.
   (Record vars -> Record vars') ->
   VIxSTEff realm eff vars vars ret ->
   VIxSTEff realm eff vars vars' ret
@@ -167,7 +157,7 @@ mapVIxSTEff f start =
   start :>>= \v -> pureVIxSTEff (Tuple v <<< f)
 
 getV ::
-  forall name realm meh vars eff r m.
+  forall name realm eff meh vars r m.
     IsSymbol name =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name ->
@@ -176,7 +166,7 @@ getV name =
   igets $ R.get name
 
 setV ::
-  forall name realm vars meh vars' eff r r' m.
+  forall name realm eff vars meh vars' r r' m.
     IsSymbol name =>
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
@@ -187,7 +177,7 @@ setV name entry =
   imodify $ R.set name entry
 
 insertV ::
-  forall name realm vars vars' eff r m.
+  forall name realm eff vars vars' r m.
     IsSymbol name =>
     RowLacks name vars =>
     RowCons name (STRecord realm r m) vars vars' =>
@@ -198,7 +188,7 @@ insertV name entry =
   imodify $ R.insert name entry
 
 modifyV ::
-  forall name realm vars meh vars' eff r r' m.
+  forall name realm eff vars meh vars' r r' m.
     IsSymbol name =>
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
@@ -209,7 +199,7 @@ modifyV name f =
   getV name :>>=/ f :>>= setV name
 
 thawAs ::
-  forall name vars vars' realm r eff.
+  forall name vars vars' realm eff r.
     IsSymbol name =>
     RowLacks name vars =>
     RowCons name (STRecord realm r ()) vars vars' =>
@@ -219,7 +209,7 @@ thawAs name r =
   rawCopy r /:>>= insertV name
 
 freezeFrom ::
-  forall name meh vars realm r eff.
+  forall name meh vars realm eff r.
     IsSymbol name =>
     RowCons name (STRecord realm r ()) meh vars =>
   SProxy name ->
@@ -252,10 +242,11 @@ unmanagedGet ::
 unmanagedGet = rawGet <<< reflectSymbol
 
 get ::
-  forall name sym t r r' m realm meh vars eff.
+  forall name sym t r r' m realm eff meh vars.
     IsSymbol name =>
     IsSymbol sym =>
     RowCons sym t r' r =>
+    RowLacks sym m =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
   VIxSTEff realm eff vars vars t
@@ -271,9 +262,10 @@ unmanagedTest ::
 unmanagedTest k = rawExists (reflectSymbol k)
 
 test ::
-  forall name sym t r m m' realm meh vars eff.
+  forall name sym t r m m' realm eff meh vars.
     IsSymbol name =>
     IsSymbol sym =>
+    RowLacks sym r =>
     RowCons sym t m' m =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
@@ -294,10 +286,11 @@ unmanagedGetM s r =
     $ pure <$> rawGet k r
 
 getM ::
-  forall name sym t r m m' realm meh vars eff f.
+  forall name sym t r m m' realm eff meh vars f.
     Alternative f =>
     IsSymbol name =>
     IsSymbol sym =>
+    RowLacks sym r =>
     RowCons sym t m' m =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
@@ -317,10 +310,11 @@ unmanagedInsert s v r = do
   pure (unsafeCoerceSTRecord r)
 
 insert ::
-  forall name sym t r r' m realm vars meh vars' eff.
+  forall name sym t r r' m realm eff vars meh vars'.
     IsSymbol name =>
     IsSymbol sym =>
     RowLacks sym r =>
+    RowLacks sym m =>
     RowCons sym t r r' =>
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
@@ -341,11 +335,12 @@ unmanagedDelete s r = do
   pure (unsafeCoerceSTRecord r)
 
 delete ::
-  forall name sym t r r' m realm vars meh vars' eff.
+  forall name sym t r r' m realm eff vars meh vars'.
     IsSymbol name =>
     IsSymbol sym =>
     RowCons sym t r' r =>
     RowLacks sym r' =>
+    RowLacks sym m =>
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
   SProxy name -> SProxy sym ->
