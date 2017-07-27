@@ -3,16 +3,13 @@ module Test.Main where
 import Data.Record.ST
 
 import Control.IxMonad (ipure, (:*>), (:>>=))
-import Control.IxMonad.State.IxSTEff (IxSTEff(..))
-import Control.IxMonad.State.MVIxSTEff (MVIxSTEff, getV, mvliftEff, (:>>=/))
+import Control.IxMonad.State.MVIxSTEff (MVIxSTEff, getV, runIX, mvliftEff, (:>>=/))
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (CONSOLE)
-import Control.Monad.ST (runST)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Record.ST.Operations (freezeMaybesFrom)
 import Data.Symbol (class IsSymbol, SProxy(..), reflectSymbol)
-import Data.Tuple (fst)
-import Prelude (class Eq, class Show, Unit, add, const, eq, map, show, unit, (<<<), (<>), (==))
+import Prelude (class Eq, class Show, Unit, add, const, eq, show, unit, (<<<), (<>), (==))
 import Test.Assert (ASSERT, assert')
 import Type.Row (class RowLacks)
 
@@ -58,9 +55,6 @@ asserteqife name key v =
     assertion actual = n <> "." <> k <> " should equal " <> show v <> " but it was " <> show actual
   in getV name :>>=/ unmanagedGetM key :>>=/ \actual ->
     assert' (assertion actual) (maybe true (eq v) actual)
-
-runIX :: forall e vs ret. (forall realm. VIxSTEff realm e () vs ret) -> Eff e ret
-runIX (IxSTEff f) = (map fst (runST (f {})))
 
 main :: forall eff. Eff (console :: CONSOLE, assert :: ASSERT | eff) Unit
 main =

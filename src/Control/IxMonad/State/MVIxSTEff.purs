@@ -1,15 +1,18 @@
 module Control.IxMonad.State.MVIxSTEff where
 
-import Control.IxMonad.State.IxSTEff (IxSTEff(..), STEff)
-import Prelude (Unit, pure, ($), (<<<), (>>>))
-
 import Control.IxMonad (ibind, ipure, (:>>=))
 import Control.IxMonad.State.Class (imodify, igets)
-import Control.Monad.Eff (kind Effect)
+import Control.IxMonad.State.IxStateT (IxStateT(..))
+import Control.Monad.Eff (Eff, kind Effect)
 import Control.Monad.Eff.Class (liftEff)
+import Control.Monad.ST (ST, runST)
 import Data.Record as R
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple(..), fst)
+import Prelude (Unit, map, pure, ($), (<<<), (>>>))
 import Type.Prelude (SProxy, class IsSymbol, class RowLacks)
+
+type STEff realm eff
+  = Eff (st :: ST realm | eff)
 
 type MVIxSTEff
   (realm :: Type)
@@ -17,12 +20,15 @@ type MVIxSTEff
   (fromVars :: # Type)
   (toVars :: # Type)
   (ret :: Type)
-  = IxSTEff realm eff (Record fromVars) (Record toVars) ret
+  = IxStateT (STEff realm eff) (Record fromVars) (Record toVars) ret
 
 runMVIxSTEff :: forall realm fromVars toVars eff ret.
   MVIxSTEff realm eff fromVars toVars ret ->
   Record fromVars -> STEff realm eff (Tuple ret (Record toVars))
-runMVIxSTEff (IxSTEff f) = f
+runMVIxSTEff (IxStateT f) = f
+
+runIX :: forall e vs ret. (forall realm. MVIxSTEff realm e () vs ret) -> Eff e ret
+runIX (IxStateT f) = (map fst (runST (f {})))
 
 mvbind :: forall   realm eff x y z a b.
         MVIxSTEff realm eff x y   a  ->
@@ -41,7 +47,7 @@ mvbindLift :: forall realm eff x y a b.
 mvbindLift start f = start :>>= f >>> mvliftEff
 infixl 1 mvbindLift as :>>=/
 
-mvliftBind :: forall realm x y eff a b.
+mvliftBind :: forall realm eff x y a b.
   STEff realm eff a ->
   (a -> MVIxSTEff realm eff x y b) ->
   MVIxSTEff realm eff x y b
@@ -56,7 +62,7 @@ mvliftEff = liftEff
 pureMVIxSTEff :: forall realm eff vars vars' ret.
   (Record vars -> Tuple ret (Record vars')) ->
   MVIxSTEff realm eff vars vars' ret
-pureMVIxSTEff f = IxSTEff (pure <<< f)
+pureMVIxSTEff f = IxStateT (pure <<< f)
 
 withMVIxSTEff :: forall realm eff vars ret.
   (Record vars -> ret) ->
@@ -103,7 +109,7 @@ insertV name entry =
   imodify $ R.insert name entry
 
 deleteV ::
-  forall name realm eff vars meh vars' d.
+  forall name realm eff vars vars' d.
     IsSymbol name =>
     RowLacks name vars' =>
     RowCons name d vars' vars =>

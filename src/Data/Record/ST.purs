@@ -2,8 +2,7 @@ module Data.Record.ST where
 
 import Control.Alternative (class Alternative)
 import Control.IxMonad ((<*:))
-import Control.IxMonad.State.IxSTEff (IxSTEff, STEff)
-import Control.IxMonad.State.MVIxSTEff (getV, insertV, modifyV, deleteV, (/:>>=), (:>>=/))
+import Control.IxMonad.State.MVIxSTEff (MVIxSTEff, STEff, getV, insertV, modifyV, deleteV, (/:>>=), (:>>=/))
 import Control.Monad as Monad
 import Control.Monad.Eff (kind Effect)
 import Control.Plus (empty)
@@ -21,22 +20,14 @@ unsafeCoerceSTRecord ::
   STRecord realm r' m'
 unsafeCoerceSTRecord = unsafeCoerce
 
-type VIxSTEff
-  (realm :: Type)
-  (eff :: # Effect)
-  (fromVars :: # Type)
-  (toVars :: # Type)
-  (ret :: Type)
-  = IxSTEff realm eff (Record fromVars) (Record toVars) ret
-
-type VIxSTREff
+type MVIxSTREff
   (realm :: Type)
   (eff :: # Effect)
   (fromVars :: # Type)
   (toVars :: # Type)
   (r :: # Type)
   (m :: # Type)
-  = VIxSTEff realm eff fromVars toVars (STRecord realm r m)
+  = MVIxSTEff realm eff fromVars toVars (STRecord realm r m)
 
 type OnSTRecord realm eff r m a
   = STRecord realm r m -> STEff realm eff a
@@ -50,7 +41,7 @@ thawAs ::
     RowLacks name vars =>
     RowCons name (STRecord realm r ()) vars vars' =>
   SProxy name -> Record r ->
-  VIxSTEff realm eff vars vars' Unit
+  MVIxSTEff realm eff vars vars' Unit
 thawAs name r =
   rawCopy r /:>>= insertV name
 
@@ -59,7 +50,7 @@ freezeFrom ::
     IsSymbol name =>
     RowCons name (STRecord realm r ()) meh vars =>
   SProxy name ->
-  VIxSTEff realm eff vars vars (Record r)
+  MVIxSTEff realm eff vars vars (Record r)
 freezeFrom name =
   getV name :>>=/ rawCopy
 
@@ -69,13 +60,8 @@ unsafeFreeze ::
     RowCons name (STRecord realm r ()) vars' vars =>
     RowLacks name vars' =>
   SProxy name ->
-  VIxSTEff realm eff vars vars' (Record r)
-unsafeFreeze name = coerceG (getV name) <*: deleteV name
-  where
-    coerceG ::
-      VIxSTEff realm eff vars vars (STRecord realm r ()) ->
-      VIxSTEff realm eff vars vars (Record r)
-    coerceG = unsafeCoerce
+  MVIxSTEff realm eff vars vars' (Record r)
+unsafeFreeze name = (getV name <#> unsafeCoerce) <*: deleteV name
 
 foreign import rawCopy ::
   forall a b realm eff.
@@ -109,7 +95,7 @@ get ::
     RowLacks sym m =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
-  VIxSTEff realm eff vars vars t
+  MVIxSTEff realm eff vars vars t
 get name k =
   getV name :>>=/ unmanagedGet k
 
@@ -129,7 +115,7 @@ test ::
     RowCons sym t m' m =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
-  VIxSTEff realm eff vars vars Boolean
+  MVIxSTEff realm eff vars vars Boolean
 test name k =
   getV name :>>=/ unmanagedTest k
 
@@ -154,7 +140,7 @@ getM ::
     RowCons sym t m' m =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name -> SProxy sym ->
-  VIxSTEff realm eff vars vars (f t)
+  MVIxSTEff realm eff vars vars (f t)
 getM name k =
   getV name :>>=/ unmanagedGetM k
 
@@ -179,7 +165,7 @@ insert ::
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
   SProxy name -> SProxy sym ->
-  t -> VIxSTEff realm eff vars vars' Unit
+  t -> MVIxSTEff realm eff vars vars' Unit
 insert name k v =
   modifyV name $ unmanagedInsert k v
 
@@ -204,7 +190,7 @@ insertM ::
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r m') meh vars' =>
   SProxy name -> SProxy sym ->
-  Boolean -> t -> VIxSTEff realm eff vars vars' Unit
+  Boolean -> t -> MVIxSTEff realm eff vars vars' Unit
 insertM name k b v =
   modifyV name $ unmanagedInsertM k b v
 
@@ -229,7 +215,7 @@ delete ::
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r' m) meh vars' =>
   SProxy name -> SProxy sym ->
-  VIxSTEff realm eff vars vars' Unit
+  MVIxSTEff realm eff vars vars' Unit
 delete name k =
   modifyV name $ unmanagedDelete k
 
@@ -256,7 +242,7 @@ deleteM ::
     RowCons name (STRecord realm r m) meh vars =>
     RowCons name (STRecord realm r m') meh vars' =>
   SProxy name -> SProxy sym ->
-  VIxSTEff realm eff vars vars' Unit
+  MVIxSTEff realm eff vars vars' Unit
 deleteM name k =
   modifyV name $ unmanagedDeleteM k
 
@@ -286,7 +272,7 @@ alter ::
     RowCons name (STRecord realm r m') meh vars' =>
   SProxy name -> SProxy sym ->
   (Maybe t -> Maybe t') ->
-  VIxSTEff realm eff vars vars' Unit
+  MVIxSTEff realm eff vars vars' Unit
 alter name k f =
   modifyV name $ unmanagedAlter k f
 
@@ -317,6 +303,6 @@ ensure ::
     RowCons name (STRecord realm r' m') meh vars' =>
   SProxy name -> SProxy sym ->
   (Maybe t -> t') ->
-  VIxSTEff realm eff vars vars' Unit
+  MVIxSTEff realm eff vars vars' Unit
 ensure name k f =
   modifyV name $ unmanagedEnsure k f

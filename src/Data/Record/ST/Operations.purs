@@ -3,9 +3,9 @@ module Data.Record.ST.Operations where
 import Prelude
 
 import Control.Bind (bindFlipped)
-import Control.IxMonad.State.MVIxSTEff (getV, (:>>=/))
+import Control.IxMonad.State.MVIxSTEff (MVIxSTEff, getV, (:>>=/))
 import Data.Maybe (Maybe)
-import Data.Record.ST (MutSTRecord, STRecord, VIxSTEff, rawCopy, unmanagedEnsure)
+import Data.Record.ST (MutSTRecord, STRecord, rawCopy, unmanagedEnsure)
 import Data.Symbol (class IsSymbol, SProxy(..))
 import Type.Row (class ListToRow, class RowLacks, class RowToList, Cons, Nil, RLProxy(..), kind RowList)
 import Unsafe.Coerce (unsafeCoerce)
@@ -52,7 +52,10 @@ instance freezeCons ::
         -- ens :: MutSTRecord _ _ r r_ m m_
         ens = unmanagedEnsure (SProxy :: SProxy sym) id
         -- fzM :: MutSTRecord _ _ r_ r' m_ ()
-        fzM = freezeMaybes' (RLProxy :: RLProxy (Cons sym (Maybe t) rl)) (RLProxy :: RLProxy ml) (RLProxy :: RLProxy (Cons sym (Maybe t) rl'))
+        fzM = freezeMaybes'
+          (RLProxy :: RLProxy (Cons sym (Maybe t) rl))
+          (RLProxy :: RLProxy ml)
+          (RLProxy :: RLProxy (Cons sym (Maybe t) rl'))
 
 freezeMaybesFrom :: forall name meh vars realm eff r r' m rl ml rl'.
     IsSymbol name =>
@@ -62,7 +65,7 @@ freezeMaybesFrom :: forall name meh vars realm eff r r' m rl ml rl'.
     FreezeMaybes rl ml rl' r m r' =>
     RowCons name (STRecord realm r m) meh vars =>
   SProxy name ->
-  VIxSTEff realm eff vars vars (Record r')
+  MVIxSTEff realm eff vars vars (Record r')
 freezeMaybesFrom name = getV name :>>=/ rawCopy :>>=/ freezeMaybes'
   (RLProxy :: RLProxy rl) (RLProxy :: RLProxy ml) (RLProxy :: RLProxy rl')
   <#> (unsafeCoerce :: STRecord realm r' () -> Record r')
